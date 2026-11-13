@@ -34,10 +34,34 @@ const ConfigSchema = z.object({
     password: z.string().min(1).optional(),
     sessionToken: z.string().min(1).optional(),
     pollSeconds: z.coerce.number().int().min(15, 'TALK_POLL_SECONDS must be at least 15').default(60),
+    /** Talk's web page, linked from HubSpot so reps can play recordings. */
+    url: z.url({ error: 'TALK_URL must be a full https:// address' }).optional(),
   }),
   hubspot: z.object({
     token: z.string().min(1).optional(),
+    /** GUID of a custom "Meeting booked" call outcome (HubSpot Pro and up). Without it, "Connected" is used. */
+    meetingBookedOutcomeId: z.string().regex(/^[0-9a-f-]{36}$/i, 'HUBSPOT_MEETING_BOOKED_OUTCOME_ID must be an outcome GUID').optional(),
   }),
+  /** Our company names, so our own introductions aren't taken for the caller's. */
+  companyNames: z
+    .union([z.array(z.string()), z.string()])
+    .transform((v) => (Array.isArray(v) ? v : v.split(',')).map((s) => s.trim()).filter(Boolean))
+    .default([]),
+  /** Country for numbers written without a country code. Defaults to the Talk console's country. */
+  defaultCountry: z.string().regex(/^[A-Za-z]{2}$/, 'DEFAULT_COUNTRY must be a two-letter country code').transform((s) => s.toUpperCase()).optional(),
+  /** Time zone for dates in notes and for reading "tomorrow at 3". Defaults to the server's. */
+  timeZone: z
+    .string()
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'TIME_ZONE must be a time zone name like America/Chicago')
+    .optional(),
+  rulesFile: z.string().min(1).optional(),
   dryRun: bool.default(true),
   dataDir: z.string().min(1).default('./data'),
   logLevel: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -50,7 +74,7 @@ const ConfigSchema = z.object({
 type ParsedConfig = z.infer<typeof ConfigSchema>;
 
 export interface Config extends Omit<ParsedConfig, 'talk'> {
-  talk: { host: string; port: number; certSha256: string; pollSeconds: number; auth: TalkAuth };
+  talk: { host: string; port: number; certSha256: string; pollSeconds: number; url: string; auth: TalkAuth };
 }
 
 /** Environment variable → config path. Secrets are marked so `<NAME>_FILE` works and values are never echoed. */
@@ -64,7 +88,13 @@ const ENV: Array<{ name: string; path: string; secret?: boolean }> = [
   { name: 'TALK_PASSWORD', path: 'talk.password', secret: true },
   { name: 'TALK_SESSION_TOKEN', path: 'talk.sessionToken', secret: true },
   { name: 'TALK_POLL_SECONDS', path: 'talk.pollSeconds' },
+  { name: 'TALK_URL', path: 'talk.url' },
   { name: 'HUBSPOT_TOKEN', path: 'hubspot.token', secret: true },
+  { name: 'HUBSPOT_MEETING_BOOKED_OUTCOME_ID', path: 'hubspot.meetingBookedOutcomeId' },
+  { name: 'COMPANY_NAMES', path: 'companyNames' },
+  { name: 'DEFAULT_COUNTRY', path: 'defaultCountry' },
+  { name: 'TIME_ZONE', path: 'timeZone' },
+  { name: 'RULES_FILE', path: 'rulesFile' },
   { name: 'DRY_RUN', path: 'dryRun' },
   { name: 'DATA_DIR', path: 'dataDir' },
   { name: 'LOG_LEVEL', path: 'logLevel' },
@@ -136,7 +166,12 @@ export function loadConfig(options: LoadOptions = {}): Config {
     throw new ConfigError(`configuration problems:\n  - ${lines.join('\n  - ')}`);
   }
   const c = parsed.data;
-  return { ...c, talk: { host: c.talk.host, port: c.talk.port, certSha256: c.talk.certSha256, pollSeconds: c.talk.pollSeconds, auth: talkAuth(c.talk) } };
+  const hostPart = c.talk.host.includes(':') && !c.talk.host.startsWith('[') ? `[${c.talk.host}]` : c.talk.host; // IPv6
+  const url = c.talk.url ?? `https://${hostPart}${c.talk.port === 443 ? '' : `:${c.talk.port}`}/talk/`;
+  return {
+    ...c,
+    talk: { host: c.talk.host, port: c.talk.port, certSha256: c.talk.certSha256, pollSeconds: c.talk.pollSeconds, url, auth: talkAuth(c.talk) },
+  };
 }
 
 /** Which way to sign in: TALK_AUTH if set, else whichever credentials are present (API key first). */

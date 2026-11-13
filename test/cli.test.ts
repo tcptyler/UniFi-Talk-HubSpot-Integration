@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { main } from '../src/cli.ts';
+import { runCli as run } from './helpers/run-cli.ts';
 import { startMockConsole, callRecord, type MockConsole } from './helpers/mock-console.ts';
 
 let mock: MockConsole;
@@ -22,23 +22,6 @@ before(async () => {
 });
 
 after(() => mock.close());
-
-async function run(argv: string[], env: Record<string, string>) {
-  const saved = { ...process.env };
-  const out: string[] = [];
-  const log = console.log;
-  const error = console.error;
-  console.log = (...a: unknown[]) => void out.push(a.join(' '));
-  console.error = (...a: unknown[]) => void out.push(a.join(' '));
-  Object.assign(process.env, env);
-  try {
-    return { code: await main(argv), text: out.join('\n') };
-  } finally {
-    console.log = log;
-    console.error = error;
-    process.env = saved;
-  }
-}
 
 test('check connects, summarises, and prints no phone numbers or names', async () => {
   const { code, text } = await run(['check'], {

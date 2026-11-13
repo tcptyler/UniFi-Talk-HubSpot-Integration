@@ -10,6 +10,8 @@ export interface CallFacts {
   startedAt: Date;
   direction: CallDirection;
   status: CallStatus;
+  /** Someone picked up (a `call_accepted` event), whether or not the call has ended. */
+  answered: boolean;
   /** Last `call_hangup` cause: normal_end, cancelled, refused (seen so far). */
   hangupCause: string | null;
   /** Seconds from answer to hang-up (0 when not answered). */
@@ -43,6 +45,7 @@ export function callFacts(rec: CallRecord): CallFacts {
     startedAt: new Date(rec.time),
     direction,
     status,
+    answered: Boolean(accepted),
     hangupCause: cause,
     talkSeconds: accepted && hangup ? Math.max(0, Math.round((time(hangup.time) - time(accepted.time)) / 1000)) : 0,
     wentToVoicemail: Boolean(first('call_sent_to_voicemail')),

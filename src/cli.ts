@@ -5,12 +5,17 @@ import { loadConfig, ConfigError } from './config.ts';
 import { fetchCertificate } from './talk/tls.ts';
 import { TalkClient, TalkAuthError, TalkError, TalkRateLimitError, TalkSchemaError } from './talk/client.ts';
 import { callFacts } from './talk/facts.ts';
+import { loadRules, RulesError, DEFAULT_RULES_FILE } from './rules/rules.ts';
+import { preview, summarize, writePlans } from './sync/preview.ts';
 
 const HELP = `unifi-talk-hubspot: log UniFi Talk calls in HubSpot (self-hosted, no AI)
 
 Usage:
   unifi-talk-hubspot fingerprint <host>[:port]   Show the console's certificate fingerprint (for TALK_CERT_SHA256)
   unifi-talk-hubspot check                       Check the configuration and the connection to Talk
+  unifi-talk-hubspot preview [--hours 24] [--limit 200]
+                                                 Show what would be logged in HubSpot for recent calls.
+                                                 Writes nothing to HubSpot.
   unifi-talk-hubspot help                        Show this help
 
 Configuration comes from environment variables (see .env.example) or config.yaml.
@@ -57,8 +62,35 @@ async function check(): Promise<number> {
   return EXIT.ok;
 }
 
+async function runPreview(args: { hours?: string | boolean; limit?: string | boolean }): Promise<number> {
+  const hours = Number(args.hours ?? 24);
+  const limit = Number(args.limit ?? 200);
+  if (!Number.isFinite(hours) || hours <= 0 || !Number.isInteger(limit) || limit <= 0) {
+    console.error('usage: unifi-talk-hubspot preview [--hours <number>] [--limit <whole number>]');
+    return EXIT.usage;
+  }
+  const config = loadConfig();
+  const rules = loadRules(config.rulesFile ?? DEFAULT_RULES_FILE);
+  const talk = new TalkClient({ host: config.talk.host, port: config.talk.port, pin: config.talk.certSha256, auth: config.talk.auth });
+  try {
+    const result = await preview(talk, config, rules, { hours, limit });
+    console.log(summarize(result, { hours, timeZone: config.timeZone }));
+    const file = writePlans(result.plans, config.dataDir);
+    console.log(`\nFull plan, with the exact HubSpot requests: ${file}`);
+    console.log('It contains phone numbers and transcripts; keep it private.');
+    return EXIT.ok;
+  } finally {
+    talk.agent.destroy();
+  }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
-  const { positionals } = parseArgs({ args: argv, allowPositionals: true, strict: false });
+  const { positionals, values } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: false,
+    options: { hours: { type: 'string' }, limit: { type: 'string' } },
+  });
   const [command, ...rest] = positionals;
   try {
     switch (command) {
@@ -66,6 +98,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return await fingerprint(rest[0]);
       case 'check':
         return await check();
+      case 'preview':
+        return await runPreview(values);
       case undefined:
       case 'help':
         console.log(HELP);
@@ -75,7 +109,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return EXIT.usage;
     }
   } catch (err) {
-    if (err instanceof ConfigError) {
+    if (err instanceof ConfigError || err instanceof RulesError) {
       console.error(err.message);
       return EXIT.config;
     }

@@ -1,0 +1,88 @@
+# Rules for picking call outcomes and spotting details in call transcripts and texts.
+# No AI: these phrase lists and thresholds are the whole decision process.
+#
+# To change them, copy this file, edit the copy and set RULES_FILE to its path.
+# Patterns are regular expressions, matched case-insensitively against what was said.
+# In YAML single quotes, write an apostrophe as two apostrophes: 'don''t'.
+version: 1
+
+thresholds:
+  # Answered calls shorter than this, with no transcript, are logged as "No answer".
+  connectedMinSeconds: 20
+  # Words we must say after a voicemail greeting for the call to count as "Left voicemail".
+  voicemailMinWords: 8
+  # Words we can say before a greeting (a "hello?") and still call it a voicemail.
+  voicemailMaxWordsBeforeGreeting: 3
+
+outcomes:
+  # Recorded network messages. Checked on everything said, whoever the speaker label is.
+  carrierIntercept:
+    - 'not in service'
+    - 'no longer in service'
+    - 'has been disconnected'
+    - 'check the number and (?:dial|try) again'
+    - 'your call cannot be completed as dialed'
+    - 'is not a working number'
+
+  # Said by the other party.
+  wrongNumber:
+    - 'wrong number'
+    - 'no one (?:here )?(?:by|with) that name'
+    - '(?:there''s|there is) no(?:body| one)? (?:named |called )?\w+ (?:here|at this number)'
+    - 'you must have the wrong'
+    - 'don''t know (?:any(?:one|body)|a(?:ny)? (?:person|guy|lady|woman|man)) (?:named|called|by (?:that|the) name)'
+    - 'doesn''t live here'
+    - 'no longer (?:lives|works) here'
+
+  # The other party's voicemail greeting (outbound calls).
+  voicemailGreeting:
+    - 'leave (?:a|your) (?:message|name)'
+    - '(?:after|at) the (?:tone|beep)'
+    - '(?:is|am|are) (?:not available|unavailable)'
+    - 'can''t (?:come to|get to|answer) the phone'
+    - 'unable to (?:take|answer) your call'
+    - '(?:i''m|we''re) not (?:here|in|available) right now'
+    - 'you''ve reached'
+    - 'you have reached'
+    - 'voice ?mail(?:box)?'
+    - 'record your message'
+
+  # Their voicemail can't take a message (outbound calls).
+  mailboxUnavailable:
+    - 'mailbox is full'
+    - 'cannot accept (?:any )?(?:new |more )?messages'
+    - 'has not been set up'
+    - 'not (?:been )?set up yet'
+
+  # A person on their side took a message.
+  liveMessage:
+    - 'can i take a message'
+    - '(?:want|like) to leave (?:a|her|him|them) (?:message|voicemail)'
+    - 'i''ll (?:let|tell) (?:him|her|them) (?:know|you called)'
+    - 'i''ll pass (?:that|it|the message|this) (?:along|on)'
+    - 'i''ll have (?:him|her|them) (?:call|get back to) you'
+    - '(?:he|she|they)(?:''s|''re| is| are) (?:not in|out|away|in a meeting|on another (?:call|line)|not available|unavailable)'
+
+meetings:
+  # Words near a date or time that mean a meeting is being arranged.
+  intent:
+    - '\b(?:meet|meeting|schedule|book|appointment|calendar|invite|demo|come (?:by|out)|stop by|site visit|consultation|walkthrough)\b'
+  # Words near the date or time that mean both sides agreed.
+  agreement:
+    - '\b(?:that works|works for me|sounds good|see you (?:then|there)|perfect|let''s do (?:it|that)|confirmed)\b'
+    - 'i''ll send (?:you )?(?:a |the )?(?:calendar )?invite'
+  # How far (characters) around the date to look for those words.
+  window: 120
+
+identity:
+  # A name ending in one of these is a company, not a person.
+  companySuffixes: [llc, inc, incorporated, corp, corporation, co, company, ltd, group, services, solutions, partners,
+    associates, plumbing, roofing, electric, construction, realty, law, dental, clinic, insurance, bank, consulting,
+    agency, studio, labs, systems, technologies, enterprises, holdings, industries, hvac, landscaping]
+  # Capitalised words after "this is" that are not names.
+  notNames: [hello, hi, hey, yes, yeah, no, sorry, thanks, thank, okay, ok, good, great, sure, well, so, just, that,
+    this, it, he, she, they, we, you, monday, tuesday, wednesday, thursday, friday, saturday, sunday, january,
+    february, march, april, may, june, july, august, september, october, november, december]
+  # Words that end a name ("this is Jane calling about...").
+  stopWords: [and, calling, about, regarding, just, i, i'm, im, here, to, for, the, returning, following, checking,
+    please, leave, not, available, right, now, again]

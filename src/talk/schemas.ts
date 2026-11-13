@@ -55,11 +55,14 @@ export const CallLogPage = z.looseObject({
 });
 export type CallLogPage = z.infer<typeof CallLogPage>;
 
+// Seconds from the start of the call. Talk 5.3 sent these as strings, 5.4 as numbers.
+const seconds = z.union([z.number(), z.string()]).nullable().optional();
+
 export const TranscriptLine = z.looseObject({
   speaker: z.string(),
   line: z.string(),
-  line_start_time: z.number().optional(),
-  line_end_time: z.number().optional(),
+  line_start_time: seconds,
+  line_end_time: seconds,
 });
 export type TranscriptLine = z.infer<typeof TranscriptLine>;
 
