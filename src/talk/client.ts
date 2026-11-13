@@ -296,9 +296,11 @@ export class TalkClient {
   }
 
   async #pace(): Promise<void> {
-    const wait = this.#lastRequestAt + this.#minIntervalMs - Date.now();
+    // Reserve the slot before waiting, so parallel callers queue up instead of all firing together.
+    const slot = Math.max(Date.now(), this.#lastRequestAt + this.#minIntervalMs);
+    this.#lastRequestAt = slot;
+    const wait = slot - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    this.#lastRequestAt = Date.now();
   }
 
   async #request(method: string, path: string, options: { body?: unknown; maxBytes?: number }): Promise<RawResponse> {

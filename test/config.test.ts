@@ -64,3 +64,8 @@ test('bad values are reported by setting name, and secret values are never echoe
   assert.match(err.message, /DRY_RUN/);
   assert.doesNotMatch(err.message, /maybe|nope/);
 });
+
+test('TALK_URL must be http or https', () => {
+  assert.throws(() => load({ ...base, TALK_API_KEY: 'k', TALK_URL: 'javascript:alert(1)' }), /TALK_URL must be a full https:\/\/ address/);
+  assert.equal(load({ ...base, TALK_API_KEY: 'k', TALK_URL: 'https://talk.example/talk/' }).talk.url, 'https://talk.example/talk/');
+});

@@ -51,7 +51,7 @@ function compile(list: string[], where: string): RegExp[] {
   });
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function compileRules(source: unknown, file = 'rules'): Rules {
   const parsed = RulesFile.safeParse(source);
@@ -60,7 +60,7 @@ export function compileRules(source: unknown, file = 'rules'): Rules {
   }
   const r = parsed.data;
   const outcomes = Object.fromEntries(Object.entries(r.outcomes).map(([k, v]) => [k, compile(v, `outcomes.${k}`)])) as Rules['outcomes'];
-  const suffixes = r.identity.companySuffixes.map((s) => escape(s.toLowerCase())).join('|');
+  const suffixes = r.identity.companySuffixes.map((s) => escapeRegExp(s.toLowerCase())).join('|');
   return {
     thresholds: r.thresholds,
     outcomes,

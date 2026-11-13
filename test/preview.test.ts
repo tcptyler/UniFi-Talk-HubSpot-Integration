@@ -48,7 +48,7 @@ before(async () => {
 after(() => mock.close());
 
 test('preview plans every call, prints a shareable summary and writes the private plan', async () => {
-  const { code, text } = await runCli(['preview', '--hours', '48'], {
+  const { code, text } = await runCli(['preview', '--hours', '100000'], {
     TALK_HOST: '127.0.0.1',
     TALK_PORT: String(mock.port),
     TALK_CERT_SHA256: mock.pin,
@@ -83,7 +83,7 @@ test('preview plans every call, prints a shareable summary and writes the privat
 test('with a HubSpot key: read-only matches, owners, already-logged calls, custom outcome and portal time zone', async () => {
   const hs = await startMockHubSpot({ customMeetingOutcome: true });
   try {
-    const { code, text } = await runCli(['preview', '--hours', '48'], {
+    const { code, text } = await runCli(['preview', '--hours', '100000'], {
       TALK_HOST: '127.0.0.1',
       TALK_PORT: String(mock.port),
       TALK_CERT_SHA256: mock.pin,
@@ -110,7 +110,7 @@ test('with a HubSpot key: read-only matches, owners, already-logged calls, custo
 test('with a wrong HubSpot key the Talk preview still runs and says why lookups were skipped', async () => {
   const hs = await startMockHubSpot();
   try {
-    const { code, text } = await runCli(['preview'], {
+    const { code, text } = await runCli(['preview', '--hours', '100000'], {
       TALK_HOST: '127.0.0.1',
       TALK_PORT: String(mock.port),
       TALK_CERT_SHA256: mock.pin,

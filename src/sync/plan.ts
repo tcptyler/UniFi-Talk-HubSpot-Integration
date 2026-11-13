@@ -53,6 +53,10 @@ export function userName(user: TalkUser | undefined): string | null {
   return user.full_name?.trim() || [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || null;
 }
 
+export function firstName(user: TalkUser | undefined): string | undefined {
+  return user?.first_name?.trim() || userName(user)?.split(/\s+/)[0] || undefined;
+}
+
 const FREE_MAIL = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'icloud.com', 'me.com',
   'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com', 'zoho.com', 'yandex.com', 'mail.com',
@@ -69,7 +73,7 @@ export function selfFromTalk(users: TalkUser[], numbers: TalkNumber[], companies
     if (e164) phones.add(e164);
   };
   for (const u of users) {
-    const first = u.first_name?.trim() || userName(u)?.split(/\s+/)[0];
+    const first = firstName(u);
     if (first) names.add(first);
     addPhone(u.did);
     for (const d of u.did_list ?? []) addPhone(d);
@@ -115,11 +119,11 @@ export function planCall(rec: CallRecord, transcript: Transcript | null, ctx: Pl
     plan.notes.push('Talk never reported the end of this call, so it is logged as it stood.');
   }
 
-  const firstName = user?.first_name?.trim() || userName(user)?.split(/\s+/)[0] || undefined;
+  const ourName = firstName(user);
   const cls = classifyCall(facts, transcript, {
     rules: ctx.rules,
     self: ctx.self,
-    userNames: firstName ? [firstName] : undefined,
+    userNames: ourName ? [ourName] : undefined,
     defaultCountry: ctx.country,
     timeZone: ctx.timeZone,
   });
@@ -128,7 +132,7 @@ export function planCall(rec: CallRecord, transcript: Transcript | null, ctx: Pl
     cls,
     talkUrl: ctx.talkUrl,
     summary: ctx.talkSummary ? (transcript?.analytics?.summary ?? null) : null,
-    ourLabel: firstName ?? 'Us',
+    ourLabel: ourName ?? 'Us',
     timeZone: ctx.timeZone,
     country: ctx.country,
     externalNumber: plan.externalNumber,

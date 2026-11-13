@@ -100,8 +100,8 @@ async function recentCalls(talk: TalkClient, fromMs: number, limit: number): Pro
   const out: CallRecord[] = [];
   for (let page = 0; out.length < limit; page++) {
     const res = await talk.callLogPage({ page, itemsPerPage: perPage, fromMs });
-    out.push(...res.records);
-    if (res.records.length < perPage || out.length >= res.total_count) break;
+    out.push(...res.records.filter((r) => Date.parse(r.time) >= fromMs)); // in case the console ignores from_time
+    if (res.records.length < perPage || out.length >= res.total_count || res.records.some((r) => Date.parse(r.time) < fromMs)) break;
   }
   return out.slice(0, limit);
 }

@@ -20,7 +20,9 @@ export function pinnedAgent(host: string, pin: string): https.Agent {
   const agent = new https.Agent({ keepAlive: true, maxSockets: 4 });
   const createConnection = (options: tls.ConnectionOptions, cb: (err: Error | null, socket?: Duplex) => void) => {
     const socket = tls.connect({ ...options, host, servername: net.isIP(host) ? undefined : host, rejectUnauthorized: false });
+    const onError = (err: Error) => cb(err);
     socket.once('secureConnect', () => {
+      socket.off('error', onError); // after hand-over, errors belong to the request
       const got = normalizeFingerprint(socket.getPeerCertificate()?.fingerprint256);
       if (got && got === want) cb(null, socket);
       else {
@@ -28,7 +30,7 @@ export function pinnedAgent(host: string, pin: string): https.Agent {
         cb(new Error(`console certificate ${got || '(none)'} does not match the pinned fingerprint`));
       }
     });
-    socket.once('error', (err) => cb(err));
+    socket.once('error', onError);
     return undefined; // http.Agent waits for the callback when createConnection returns nothing
   };
   (agent as unknown as { createConnection: typeof createConnection }).createConnection = createConnection;

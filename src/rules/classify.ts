@@ -6,7 +6,7 @@ import type { CallFacts } from '../talk/facts.ts';
 import type { Transcript } from '../talk/schemas.ts';
 import { normalizeTranscript } from './normalize.ts';
 import { extractEmails, extractIdentities, extractMeetings, extractPhones, type FoundPhone, type Identity, type Meeting, type Self } from './extract.ts';
-import { firstMatch, type Rules } from './rules.ts';
+import { escapeRegExp, firstMatch, type Rules } from './rules.ts';
 
 export const OUTCOMES = ['Connected', 'Busy', 'No answer', 'Left voicemail', 'Left live message', 'Meeting booked', 'Wrong number'] as const;
 export type Outcome = (typeof OUTCOMES)[number];
@@ -55,7 +55,6 @@ export interface ClassifyContext {
 
 const NO_DETAILS: Details = { identities: [], phones: [], emails: [], meetings: [] };
 const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const seconds = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 export function transcriptLines(transcript: Transcript | null): Line[] {
@@ -76,9 +75,9 @@ export function assignSides(lines: Line[], direction: 'inbound' | 'outbound', ct
   // Only introductions count ("this is <our user>", "with <our company>"). Someone asking for one of our
   // people ("calling for Sam") must not make their side look like ours.
   const ourIntro = [
-    ...names.map((n) => new RegExp(`\\b(?:this is|my name is|i'm|i am|it's)\\s+${escape(n)}\\b`, 'i')),
-    ...ctx.self.companies.map((c) => new RegExp(`\\b(?:from|with|at|calling from)\\s+(?:the\\s+)?${escape(c)}\\b`, 'i')),
-    ...ctx.self.companies.map((c) => new RegExp(`thank(?:s| you) for calling (?:the\\s+)?${escape(c)}`, 'i')),
+    ...names.map((n) => new RegExp(`\\b(?:this is|my name is|i'm|i am|it's)\\s+${escapeRegExp(n)}\\b`, 'i')),
+    ...ctx.self.companies.map((c) => new RegExp(`\\b(?:from|with|at|calling from)\\s+(?:the\\s+)?${escapeRegExp(c)}\\b`, 'i')),
+    ...ctx.self.companies.map((c) => new RegExp(`thank(?:s| you) for calling (?:the\\s+)?${escapeRegExp(c)}`, 'i')),
   ];
   const o = ctx.rules.outcomes;
   const theirCues = [...o.voicemailGreeting, ...o.wrongNumber, ...o.liveMessage, ...o.mailboxUnavailable];

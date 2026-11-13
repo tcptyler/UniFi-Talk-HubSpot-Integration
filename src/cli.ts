@@ -50,6 +50,14 @@ async function fingerprint(target: string | undefined): Promise<number> {
 async function check(): Promise<number> {
   const config = loadConfig();
   const talk = new TalkClient({ host: config.talk.host, port: config.talk.port, pin: config.talk.certSha256, auth: config.talk.auth });
+  try {
+    return await checkWith(config, talk);
+  } finally {
+    talk.agent.destroy();
+  }
+}
+
+async function checkWith(config: ReturnType<typeof loadConfig>, talk: TalkClient): Promise<number> {
   console.log(`Talk console ${config.talk.host}:${config.talk.port}, signing in with: ${config.talk.auth.kind}`);
   const info = await talk.info();
   console.log(`  Talk version ${info.version}${info.update_channel ? ` (${info.update_channel} channel)` : ''}`);
@@ -59,7 +67,6 @@ async function check(): Promise<number> {
   const external = facts.filter((f) => f.direction !== 'internal').length;
   const newest = facts[0]?.startedAt.toISOString() ?? 'none';
   console.log(`  call log: ${page.total_count} calls; newest ${newest}; ${external} of the latest ${facts.length} are external`);
-  talk.agent.destroy();
   if (!config.hubspot.token) {
     console.log(`HubSpot: no Service Key set (dry runs only); mode: ${config.dryRun ? 'dry run' : 'write'}`);
     return EXIT.ok;

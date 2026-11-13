@@ -35,7 +35,7 @@ const ConfigSchema = z.object({
     sessionToken: z.string().min(1).optional(),
     pollSeconds: z.coerce.number().int().min(15, 'TALK_POLL_SECONDS must be at least 15').default(60),
     /** Talk's web page, linked from HubSpot so reps can play recordings. */
-    url: z.url({ error: 'TALK_URL must be a full https:// address' }).optional(),
+    url: z.url({ protocol: /^https?$/, error: 'TALK_URL must be a full https:// address' }).optional(),
   }),
   hubspot: z.object({
     token: z.string().min(1).optional(),
