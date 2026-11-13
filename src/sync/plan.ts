@@ -6,6 +6,7 @@ import { classifyCall, type Classification, type Outcome } from '../rules/classi
 import type { Rules } from '../rules/rules.ts';
 import type { Self } from '../rules/extract.ts';
 import { contactSearch, createCall, reviewTask, type PlannedRequest } from '../hubspot/calls.ts';
+import type { HubSpotMatch } from '../hubspot/lookup.ts';
 import { toE164, type CountryCode } from '../phone.ts';
 
 export interface PlanContext {
@@ -43,6 +44,8 @@ export interface CallPlan {
   details: Classification['details'] | null;
   notes: string[];
   requests: PlannedRequest[];
+  /** Read-only HubSpot matches, when a Service Key is set. */
+  hubspot?: HubSpotMatch;
 }
 
 export function userName(user: TalkUser | undefined): string | null {

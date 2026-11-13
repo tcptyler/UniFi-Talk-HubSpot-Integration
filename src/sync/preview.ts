@@ -7,6 +7,8 @@ import { TalkAuthError, TalkRateLimitError, type TalkClient } from '../talk/clie
 import type { CallRecord, Transcript } from '../talk/schemas.ts';
 import { callFacts } from '../talk/facts.ts';
 import { toCountry, type CountryCode } from '../phone.ts';
+import { HubSpotAuthError, HubSpotClient } from '../hubspot/client.ts';
+import { loadHubSpotContext, matchPlan, type HubSpotContext } from '../hubspot/lookup.ts';
 import { planCall, selfFromTalk, type CallPlan } from './plan.ts';
 
 export interface PreviewOptions {
@@ -20,10 +22,29 @@ export interface PreviewResult {
   talkVersion: string;
   country: CountryCode;
   transcriptErrors: number;
+  /** The time zone used: TIME_ZONE, else the HubSpot portal's, else the server's (undefined). */
+  timeZone: string | undefined;
+  /** Read-only HubSpot results; null without a Service Key. */
+  hubspot: { portalId: number; problem: string | null; lookupErrors: number; meetingBookedOutcome: string | null; timeZone: string | null } | null;
 }
 
 export async function preview(talk: TalkClient, config: Config, rules: Rules, options: PreviewOptions): Promise<PreviewResult> {
   const now = options.now ?? Date.now();
+
+  // HubSpot first (read only), so a custom "Meeting booked" outcome and the portal's time zone can be used.
+  let hs: HubSpotContext | null = null;
+  let hubspot: PreviewResult['hubspot'] = null;
+  const client = config.hubspot.token ? new HubSpotClient({ token: config.hubspot.token, baseUrl: config.hubspot.baseUrl }) : null;
+  if (client) {
+    try {
+      hs = await loadHubSpotContext(client);
+      hubspot = { portalId: hs.account.portalId, problem: null, lookupErrors: 0, meetingBookedOutcome: hs.meetingBookedOutcome?.label ?? null, timeZone: hs.account.timeZone ?? null };
+    } catch (err) {
+      if (!(err instanceof HubSpotAuthError)) throw err;
+      hubspot = { portalId: 0, problem: err.message, lookupErrors: 0, meetingBookedOutcome: null, timeZone: null };
+    }
+  }
+
   const info = await talk.info();
   const country = toCountry(config.defaultCountry ?? info.default_country);
   const users = await talk.users();
@@ -35,8 +56,8 @@ export async function preview(talk: TalkClient, config: Config, rules: Rules, op
     talkUrl: config.talk.url,
     talkSummary: config.features.talkSummary,
     country,
-    timeZone: config.timeZone,
-    meetingBookedOutcomeId: config.hubspot.meetingBookedOutcomeId,
+    timeZone: config.timeZone ?? hs?.account.timeZone ?? undefined,
+    meetingBookedOutcomeId: config.hubspot.meetingBookedOutcomeId ?? hs?.meetingBookedOutcome?.id,
     now,
   };
   const records = await recentCalls(talk, now - options.hours * 3_600_000, options.limit);
@@ -55,7 +76,22 @@ export async function preview(talk: TalkClient, config: Config, rules: Rules, op
     }
     plans.push(planCall(rec, transcript, ctx));
   }
-  return { plans, talkVersion: info.version, country, transcriptErrors };
+
+  if (client && hs && hubspot) {
+    const cache = new Map();
+    for (const plan of plans.filter((p) => p.action === 'log')) {
+      try {
+        plan.hubspot = await matchPlan(client, hs, plan, cache);
+      } catch (err) {
+        if (err instanceof HubSpotAuthError) {
+          hubspot.problem = err.message;
+          break;
+        }
+        hubspot.lookupErrors++;
+      }
+    }
+  }
+  return { plans, talkVersion: info.version, country, transcriptErrors, timeZone: ctx.timeZone, hubspot };
 }
 
 /** Newest calls first, back to `fromMs`, at most `limit`. */
@@ -83,9 +119,9 @@ const pad = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` 
 const duration = (s: number) => (s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${s}s`);
 
 /** A summary for the terminal. No numbers, names or transcript words, so it is safe to share. */
-export function summarize(result: PreviewResult, options: { hours: number; timeZone?: string }): string {
+export function summarize(result: PreviewResult, options: { hours: number }): string {
   const { plans } = result;
-  const when = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: options.timeZone });
+  const when = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: result.timeZone });
   const rows = plans.map((p) => {
     const flags = [p.hasTranscript && 'T', p.details?.identities.length || p.details?.phones.length || p.details?.emails.length ? 'D' : '', p.details?.meetings.length ? 'M' : '']
       .filter(Boolean)
@@ -117,5 +153,27 @@ export function summarize(result: PreviewResult, options: { hours: number; timeZ
   if (sides.length) lines.push(`Speaker sides decided by: ${count(sides)}.`);
   const errors = result.transcriptErrors;
   if (errors) lines.push(`${errors} transcript${errors === 1 ? '' : 's'} could not be read; ${errors === 1 ? 'that call was' : 'those calls were'} planned from call events only.`);
+
+  const hs = result.hubspot;
+  if (!hs) {
+    lines.push('', 'HubSpot: no Service Key set, so contacts and owners were not looked up.');
+  } else if (hs.problem && !hs.portalId) {
+    lines.push('', `HubSpot: ${hs.problem}. Contacts and owners were not looked up.`);
+  } else {
+    const matched = logged.filter((p) => p.hubspot);
+    const numbers = new Map(matched.filter((p) => p.externalNumber).map((p) => [p.externalNumber!, p.hubspot!.contactIds.length]));
+    const known = [...numbers.values()].filter((n) => n > 0).length;
+    const dupes = [...numbers.values()].filter((n) => n > 1).length;
+    const already = matched.filter((p) => p.hubspot!.existingCallId).length;
+    const owners = count(matched.map((p) => p.hubspot!.ownerSource ?? 'no owner found'));
+    lines.push(
+      '',
+      `HubSpot (read only, portal ${hs.portalId}): ${known} of ${numbers.size} caller numbers match a contact; ${numbers.size - known} would be new contacts${dupes ? `; ${dupes} match more than one contact` : ''}.`,
+      `Owners: ${owners || 'none'}. Already logged in HubSpot: ${already}.`,
+      hs.meetingBookedOutcome ? `Custom outcome "${hs.meetingBookedOutcome}" found and used for booked meetings.` : 'No custom "Meeting booked" outcome; booked meetings would be logged as Connected.',
+    );
+    if (hs.problem) lines.push(`Stopped looking up: ${hs.problem}.`);
+    if (hs.lookupErrors) lines.push(`${hs.lookupErrors} lookups failed and were skipped.`);
+  }
   return lines.join('\n');
 }

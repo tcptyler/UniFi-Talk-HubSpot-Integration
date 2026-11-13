@@ -7,6 +7,8 @@ import { TalkClient, TalkAuthError, TalkError, TalkRateLimitError, TalkSchemaErr
 import { callFacts } from './talk/facts.ts';
 import { loadRules, RulesError, DEFAULT_RULES_FILE } from './rules/rules.ts';
 import { preview, summarize, writePlans } from './sync/preview.ts';
+import { HubSpotAuthError, HubSpotClient, HubSpotError } from './hubspot/client.ts';
+import { loadHubSpotContext } from './hubspot/lookup.ts';
 
 const HELP = `unifi-talk-hubspot: log UniFi Talk calls in HubSpot (self-hosted, no AI)
 
@@ -57,8 +59,17 @@ async function check(): Promise<number> {
   const external = facts.filter((f) => f.direction !== 'internal').length;
   const newest = facts[0]?.startedAt.toISOString() ?? 'none';
   console.log(`  call log: ${page.total_count} calls; newest ${newest}; ${external} of the latest ${facts.length} are external`);
-  console.log(`HubSpot: ${config.hubspot.token ? 'token set' : 'no token (dry-run only)'}; mode: ${config.dryRun ? 'dry run' : 'write'}`);
   talk.agent.destroy();
+  if (!config.hubspot.token) {
+    console.log(`HubSpot: no Service Key set (dry runs only); mode: ${config.dryRun ? 'dry run' : 'write'}`);
+    return EXIT.ok;
+  }
+  const hs = await loadHubSpotContext(new HubSpotClient({ token: config.hubspot.token, baseUrl: config.hubspot.baseUrl }));
+  const talkEmails = users.map((u) => (u.email ?? u.user_email ?? '').toLowerCase()).filter(Boolean);
+  const matched = talkEmails.filter((e) => hs.ownersByEmail.has(e)).length;
+  console.log(`HubSpot portal ${hs.account.portalId}${hs.account.timeZone ? ` (${hs.account.timeZone})` : ''}; mode: ${config.dryRun ? 'dry run' : 'write'}`);
+  console.log(`  ${hs.ownersByEmail.size} owners; ${matched} of ${talkEmails.length} Talk users match an owner by email`);
+  console.log(`  ${hs.outcomes.length} call outcomes; ${hs.meetingBookedOutcome ? `custom "${hs.meetingBookedOutcome.label}" outcome found` : 'no custom "Meeting booked" outcome (booked meetings are logged as Connected)'}`);
   return EXIT.ok;
 }
 
@@ -74,7 +85,7 @@ async function runPreview(args: { hours?: string | boolean; limit?: string | boo
   const talk = new TalkClient({ host: config.talk.host, port: config.talk.port, pin: config.talk.certSha256, auth: config.talk.auth });
   try {
     const result = await preview(talk, config, rules, { hours, limit });
-    console.log(summarize(result, { hours, timeZone: config.timeZone }));
+    console.log(summarize(result, { hours }));
     const file = writePlans(result.plans, config.dataDir);
     console.log(`\nFull plan, with the exact HubSpot requests: ${file}`);
     console.log('It contains phone numbers and transcripts; keep it private.');
@@ -116,6 +127,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (err instanceof TalkAuthError) {
       console.error(`Talk sign-in failed: ${err.message}`);
       return EXIT.auth;
+    }
+    if (err instanceof HubSpotAuthError) {
+      console.error(`HubSpot: ${err.message}`);
+      return EXIT.auth;
+    }
+    if (err instanceof HubSpotError) {
+      console.error(`HubSpot: ${err.message}${err.correlationId ? ` (correlation id ${err.correlationId})` : ''}`);
+      return EXIT.unavailable;
     }
     if (err instanceof TalkRateLimitError || err instanceof TalkSchemaError || err instanceof TalkError) {
       console.error(err.message);

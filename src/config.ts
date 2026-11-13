@@ -39,6 +39,7 @@ const ConfigSchema = z.object({
   }),
   hubspot: z.object({
     token: z.string().min(1).optional(),
+    baseUrl: z.url({ error: 'HUBSPOT_API_BASE must be a full https:// address' }).optional(),
     /** GUID of a custom "Meeting booked" call outcome (HubSpot Pro and up). Without it, "Connected" is used. */
     meetingBookedOutcomeId: z.string().regex(/^[0-9a-f-]{36}$/i, 'HUBSPOT_MEETING_BOOKED_OUTCOME_ID must be an outcome GUID').optional(),
   }),
@@ -91,6 +92,7 @@ const ENV: Array<{ name: string; path: string; secret?: boolean }> = [
   { name: 'TALK_URL', path: 'talk.url' },
   { name: 'HUBSPOT_TOKEN', path: 'hubspot.token', secret: true },
   { name: 'HUBSPOT_MEETING_BOOKED_OUTCOME_ID', path: 'hubspot.meetingBookedOutcomeId' },
+  { name: 'HUBSPOT_API_BASE', path: 'hubspot.baseUrl' },
   { name: 'COMPANY_NAMES', path: 'companyNames' },
   { name: 'DEFAULT_COUNTRY', path: 'defaultCountry' },
   { name: 'TIME_ZONE', path: 'timeZone' },

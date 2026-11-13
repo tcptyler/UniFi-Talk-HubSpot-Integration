@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runCli } from './helpers/run-cli.ts';
 import { startMockConsole, callRecord, type MockConsole } from './helpers/mock-console.ts';
+import { startMockHubSpot, TOKEN } from './helpers/mock-hubspot.ts';
 
 let mock: MockConsole;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uth-preview-'));
@@ -77,6 +78,54 @@ test('preview plans every call, prints a shareable summary and writes the privat
     ['vm', 'Left voicemail'],
   ]);
   assert.equal(plans.find((p) => p.uuid === 'vm')?.requests.length, 3);
+});
+
+test('with a HubSpot key: read-only matches, owners, already-logged calls, custom outcome and portal time zone', async () => {
+  const hs = await startMockHubSpot({ customMeetingOutcome: true });
+  try {
+    const { code, text } = await runCli(['preview', '--hours', '48'], {
+      TALK_HOST: '127.0.0.1',
+      TALK_PORT: String(mock.port),
+      TALK_CERT_SHA256: mock.pin,
+      TALK_API_KEY: 'preview-key',
+      DATA_DIR: dataDir,
+      HUBSPOT_TOKEN: TOKEN,
+      HUBSPOT_API_BASE: hs.url,
+      CONFIG_FILE: '',
+    });
+    assert.equal(code, 0, text);
+    assert.match(text, /HubSpot \(read only, portal 1234567\): 1 of 3 caller numbers match a contact; 2 would be new contacts\./);
+    assert.match(text, /Owners: talk user 3\. Already logged in HubSpot: 1\./);
+    assert.match(text, /Custom outcome "Meeting booked" found/);
+    assert.match(text, /11\/12, 3:15 PM/, "times shown in the portal's time zone when TIME_ZONE is not set");
+    assert.ok(hs.requests.every((r) => r.method === 'GET' || r.path.endsWith('/search')), 'nothing but reads and searches');
+    const file = /Full plan, with the exact HubSpot requests: (.+)$/m.exec(text)?.[1] ?? '';
+    const vm = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((p) => p.uuid === 'vm');
+    assert.deepEqual(vm.hubspot, { contactIds: ['501'], ownerId: '101', ownerSource: 'talk user', existingCallId: '9001' });
+  } finally {
+    await hs.close();
+  }
+});
+
+test('with a wrong HubSpot key the Talk preview still runs and says why lookups were skipped', async () => {
+  const hs = await startMockHubSpot();
+  try {
+    const { code, text } = await runCli(['preview'], {
+      TALK_HOST: '127.0.0.1',
+      TALK_PORT: String(mock.port),
+      TALK_CERT_SHA256: mock.pin,
+      TALK_API_KEY: 'preview-key',
+      DATA_DIR: dataDir,
+      HUBSPOT_TOKEN: 'wrong',
+      HUBSPOT_API_BASE: hs.url,
+      CONFIG_FILE: '',
+    });
+    assert.equal(code, 0, text);
+    assert.match(text, /HubSpot: HubSpot refused the Service Key \(check HUBSPOT_TOKEN\)\. Contacts and owners were not looked up\./);
+    assert.match(text, /Would log 3 calls/);
+  } finally {
+    await hs.close();
+  }
 });
 
 test('preview rejects bad options', async () => {

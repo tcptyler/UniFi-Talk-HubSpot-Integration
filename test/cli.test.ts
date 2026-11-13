@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { runCli as run } from './helpers/run-cli.ts';
 import { startMockConsole, callRecord, type MockConsole } from './helpers/mock-console.ts';
+import { startMockHubSpot, TOKEN } from './helpers/mock-hubspot.ts';
 
 let mock: MockConsole;
 
@@ -38,6 +39,30 @@ test('check connects, summarises, and prints no phone numbers or names', async (
   assert.match(text, /1 of the latest 2 are external/);
   assert.match(text, /mode: dry run/);
   assert.doesNotMatch(text, /\+1202|555|Test User|cli-key/);
+});
+
+test('check with a HubSpot key reports the portal, owner matches and outcomes', async () => {
+  const hs = await startMockHubSpot({ customMeetingOutcome: true });
+  try {
+    mock.route('users', () => ({ body: [{ unique_id: 'u1', first_name: 'Test', last_name: 'User', email: 'alex@northwind.example' }] }));
+    const { code, text } = await run(['check'], {
+      TALK_HOST: '127.0.0.1',
+      TALK_PORT: String(mock.port),
+      TALK_CERT_SHA256: mock.pin,
+      TALK_API_KEY: 'cli-key',
+      HUBSPOT_TOKEN: TOKEN,
+      HUBSPOT_API_BASE: hs.url,
+      CONFIG_FILE: '',
+    });
+    assert.equal(code, 0, text);
+    assert.match(text, /HubSpot portal 1234567 \(America\/New_York\)/);
+    assert.match(text, /2 owners; 1 of 1 Talk users match an owner by email/);
+    assert.match(text, /3 call outcomes; custom "Meeting booked" outcome found/);
+    assert.doesNotMatch(text, /northwind|Alex/i);
+  } finally {
+    mock.route('users', () => ({ body: [{ unique_id: 'u1', first_name: 'Test', last_name: 'User' }] }));
+    await hs.close();
+  }
 });
 
 test('check with a wrong API key exits with the auth code', async () => {

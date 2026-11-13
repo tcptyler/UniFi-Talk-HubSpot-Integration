@@ -78,6 +78,8 @@ npm start -- preview --hours 24
 
 The terminal shows each call's outcome and the rule that picked it, with no phone numbers or names. The exact HubSpot requests, including notes and transcripts, go to a private file in `DATA_DIR`.
 
+With `HUBSPOT_TOKEN` set, `check` confirms the key and its scopes, and `preview` also looks things up in HubSpot, read only: which callers are already contacts, which owner each call would get, and which calls are already logged. It also finds a custom "Meeting booked" outcome and uses the portal's time zone when `TIME_ZONE` isn't set.
+
 ## How outcomes are picked
 
 No AI is involved. The rules live in [`rules/default.yaml`](rules/default.yaml) as plain phrase lists you can read and change (copy the file and set `RULES_FILE`).
@@ -103,9 +105,10 @@ Settings come from environment variables (or `.env`), then an optional `config.y
 | `TALK_POLL_SECONDS` | `60` | How often to read the call log (minimum 15) |
 | `TALK_URL` | `https://<TALK_HOST>/talk/` | Talk's web page, linked from HubSpot for playing recordings |
 | `HUBSPOT_TOKEN` | | HubSpot Service Key |
-| `HUBSPOT_MEETING_BOOKED_OUTCOME_ID` | | A custom "Meeting booked" call outcome (HubSpot Pro and up). Without it, those calls are marked Connected |
+| `HUBSPOT_MEETING_BOOKED_OUTCOME_ID` | found automatically | A custom "Meeting booked" call outcome (HubSpot Pro and up). Without one, those calls are marked Connected |
+| `HUBSPOT_API_BASE` | `https://api.hubapi.com` | HubSpot API address |
 | `COMPANY_NAMES` | | Your company names, comma separated, so your own introductions are recognised |
-| `TIME_ZONE` | server's | Your time zone, for example `America/Chicago`, for reading "Tuesday at 3 pm" |
+| `TIME_ZONE` | HubSpot portal's, else server's | Your time zone, for example `America/Chicago`, for reading "Tuesday at 3 pm" |
 | `DEFAULT_COUNTRY` | console's | Country for numbers said without a country code |
 | `RULES_FILE` | `rules/default.yaml` | Your own copy of the outcome rules |
 | `DRY_RUN` | `true` | Only show what would be written |
