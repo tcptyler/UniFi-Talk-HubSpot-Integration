@@ -6,7 +6,7 @@ A free, self-hosted bridge that logs UniFi Talk calls and texts in HubSpot and k
 - **Self-hosted.** Runs on your own machine or server. Nothing is hosted in the cloud, and there is no telemetry.
 - **Free.** Bring your own UniFi console and HubSpot account.
 
-> **Status: early development, not ready to use.** The console connection, setup checks and a dry-run preview of call logging work. Writing to HubSpot is being built next. Watch the repository for the first release.
+> **Status: early development, not ready to use.** Call logging works end to end against simulated consoles and HubSpot (dry run by default), but it hasn't run against a real console yet. Watch the repository for the first release.
 
 > **Unofficial.** UniFi Talk has no public API. This project uses the same private endpoints as the Talk web app, which Ubiquiti can change in any update. Every response is validated, and the integration stops and reports a problem rather than writing bad data into your CRM.
 
@@ -45,7 +45,7 @@ Talk only answers a signed-in console session or a console API key.
 |---|---|---|
 | Console API key | `TALK_API_KEY` | Created on the console (in UniFi Network under Settings > Integrations; the location varies by version). Whether Talk accepts these keys is still being tested. |
 | Local account | `TALK_USERNAME`, `TALK_PASSWORD` | A dedicated local console account with access to Talk. Consoles in a UniFi Fabric can't create local accounts. |
-| Session token | `TALK_SESSION_TOKEN` | The `TOKEN` cookie from a browser session. For testing only: it expires. |
+| Session token | `TALK_SESSION_TOKEN` | The `TOKEN` cookie from a browser session. It expires; if the console renews it while `run` is going, the renewed one is saved in `DATA_DIR` and used after a restart. Whether a "Remember me" session lasts long enough for everyday use is still being tested. |
 
 The integration signs in once and reuses the session. If the console refuses a password, it waits 15 minutes before trying again so the account isn't locked.
 
@@ -80,6 +80,30 @@ The terminal shows each call's outcome and the rule that picked it, with no phon
 
 With `HUBSPOT_TOKEN` set, `check` confirms the key and its scopes, and `preview` also looks things up in HubSpot, read only: which callers are already contacts, which owner each call would get, and which calls are already logged. It also finds a custom "Meeting booked" outcome and uses the portal's time zone when `TIME_ZONE` isn't set.
 
+## Run it
+
+```bash
+npm start -- run
+```
+
+It checks Talk every `TALK_POLL_SECONDS` and logs each finished external call once: it waits a few minutes for Talk's transcript, finds or creates the contact, logs the call, and adds a review task. Progress is kept in `DATA_DIR`, so a restart neither repeats nor misses calls. `--once` does a single pass and exits.
+
+- **Dry run (the default):** nothing is written to HubSpot. What would be written goes to `DATA_DIR/dry-run-<date>.jsonl`. With `HUBSPOT_TOKEN` set, contacts and owners are still looked up, read only.
+- **Writing:** set `HUBSPOT_TOKEN` and `DRY_RUN=false`.
+- **It stops and says why** if the console sign-in expires, HubSpot refuses the key, or Talk's responses change shape. Network blips and console reboots are retried.
+
+### Contacts
+
+- **Unknown numbers:** a number a rep dialled always becomes a contact. An unknown caller becomes one only after `NEW_CONTACT_MIN_TALK_SECONDS` of talk or a voicemail (a spam guard); otherwise the call is skipped.
+- **Filling in details** from what the other party said (`AUTO_FILL`). Only unambiguous details count, existing values are never overwritten, and the call notes say what was filled in. On a call where someone took a message, nothing is filled in, since that person is usually a receptionist.
+
+| `AUTO_FILL` | New contacts | Existing contacts |
+|---|---|---|
+| `new-and-existing` (default) | Filled in | Empty fields filled in |
+| `new-only` | Filled in | Left alone |
+| `existing-only` | Phone number only | Empty fields filled in |
+| `suggest-only` | Phone number only | Left alone |
+
 ## How outcomes are picked
 
 No AI is involved. The rules live in [`rules/default.yaml`](rules/default.yaml) as plain phrase lists you can read and change (copy the file and set `RULES_FILE`).
@@ -111,6 +135,11 @@ Settings come from environment variables (or `.env`), then an optional `config.y
 | `TIME_ZONE` | HubSpot portal's, else server's | Your time zone, for example `America/Chicago`, for reading "Tuesday at 3 pm" |
 | `DEFAULT_COUNTRY` | console's | Country for numbers said without a country code |
 | `RULES_FILE` | `rules/default.yaml` | Your own copy of the outcome rules |
+| `AUTO_FILL` | `new-and-existing` | What gets filled in on contacts, see above |
+| `NEW_CONTACT_MIN_TALK_SECONDS` | `30` | Spam guard for unknown callers |
+| `TRANSCRIPT_WAIT_MINUTES` | `5` | How long to wait for Talk's transcript before logging without it |
+| `BACKFILL_HOURS` | `0` | On the first run, also log calls from this many hours back |
+| `HUBSPOT_DEFAULT_OWNER` | | Owner email for calls when the Talk user isn't a HubSpot owner and the contact has none |
 | `DRY_RUN` | `true` | Only show what would be written |
 | `TALK_SUMMARY` | `true` | Include Talk's call summary in the HubSpot notes |
 | `DATA_DIR` | `./data` | Local database folder |

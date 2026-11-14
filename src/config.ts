@@ -63,6 +63,18 @@ const ConfigSchema = z.object({
     }, 'TIME_ZONE must be a time zone name like America/Chicago')
     .optional(),
   rulesFile: z.string().min(1).optional(),
+  sync: z.object({
+    /** What gets filled in on contacts from calls (see the README). */
+    autoFill: z.enum(['new-and-existing', 'new-only', 'existing-only', 'suggest-only'], { error: 'AUTO_FILL must be new-and-existing, new-only, existing-only or suggest-only' }).default('new-and-existing'),
+    /** Spam guard: talk time before an unknown inbound caller becomes a contact (a voicemail also counts). */
+    newContactMinTalkSeconds: z.coerce.number().int().min(0).default(30),
+    /** How long to wait for Talk's transcript after a call ends before logging without it. */
+    transcriptWaitMinutes: z.coerce.number().min(0).max(60).default(5),
+    /** On the first run, also log calls from this many hours back. */
+    backfillHours: z.coerce.number().min(0).max(24 * 30).default(0),
+    /** Owner (an email) for calls and contacts when the Talk user isn't a HubSpot owner. */
+    defaultOwnerEmail: z.email({ error: 'HUBSPOT_DEFAULT_OWNER must be an email address' }).optional(),
+  }),
   dryRun: bool.default(true),
   dataDir: z.string().min(1).default('./data'),
   logLevel: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -97,6 +109,11 @@ const ENV: Array<{ name: string; path: string; secret?: boolean }> = [
   { name: 'DEFAULT_COUNTRY', path: 'defaultCountry' },
   { name: 'TIME_ZONE', path: 'timeZone' },
   { name: 'RULES_FILE', path: 'rulesFile' },
+  { name: 'AUTO_FILL', path: 'sync.autoFill' },
+  { name: 'NEW_CONTACT_MIN_TALK_SECONDS', path: 'sync.newContactMinTalkSeconds' },
+  { name: 'TRANSCRIPT_WAIT_MINUTES', path: 'sync.transcriptWaitMinutes' },
+  { name: 'BACKFILL_HOURS', path: 'sync.backfillHours' },
+  { name: 'HUBSPOT_DEFAULT_OWNER', path: 'sync.defaultOwnerEmail' },
   { name: 'DRY_RUN', path: 'dryRun' },
   { name: 'DATA_DIR', path: 'dataDir' },
   { name: 'LOG_LEVEL', path: 'logLevel' },
@@ -133,7 +150,7 @@ export interface LoadOptions {
 export function loadConfig(options: LoadOptions = {}): Config {
   const env = options.env ?? process.env;
   const cwd = options.cwd ?? process.cwd();
-  const raw: Record<string, unknown> = { talk: {}, hubspot: {}, features: {} };
+  const raw: Record<string, unknown> = { talk: {}, hubspot: {}, features: {}, sync: {} };
 
   const file = options.file ?? env.CONFIG_FILE ?? (fs.existsSync(path.join(cwd, 'config.yaml')) ? 'config.yaml' : undefined);
   if (file) {

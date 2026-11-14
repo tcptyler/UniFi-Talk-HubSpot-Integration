@@ -1,5 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { runCli as run } from './helpers/run-cli.ts';
 import { startMockConsole, callRecord, type MockConsole } from './helpers/mock-console.ts';
 import { startMockHubSpot, TOKEN } from './helpers/mock-hubspot.ts';
@@ -85,4 +88,33 @@ test('fingerprint prints the pin line for .env', async () => {
 test('unknown commands show usage', async () => {
   const { code } = await run(['frobnicate'], {});
   assert.equal(code, 64);
+});
+
+test('run refuses write mode without a HubSpot key', async () => {
+  const { code, text } = await run(['run', '--once'], {
+    TALK_HOST: '127.0.0.1',
+    TALK_PORT: String(mock.port),
+    TALK_CERT_SHA256: mock.pin,
+    TALK_API_KEY: 'cli-key',
+    DRY_RUN: 'false',
+    CONFIG_FILE: '',
+  });
+  assert.equal(code, 78);
+  assert.match(text, /DRY_RUN=false\) needs HUBSPOT_TOKEN/);
+});
+
+test('run --once in dry run does one pass and exits cleanly', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uth-cli-run-'));
+  const { code, text } = await run(['run', '--once'], {
+    TALK_HOST: '127.0.0.1',
+    TALK_PORT: String(mock.port),
+    TALK_CERT_SHA256: mock.pin,
+    TALK_API_KEY: 'cli-key',
+    DATA_DIR: dataDir,
+    BACKFILL_HOURS: String(24 * 30),
+    LOG_LEVEL: 'error',
+    CONFIG_FILE: '',
+  });
+  assert.equal(code, 0, text);
+  assert.ok(fs.existsSync(path.join(dataDir, 'state.json')));
 });

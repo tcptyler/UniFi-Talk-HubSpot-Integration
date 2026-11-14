@@ -8,6 +8,8 @@ export type CallStatus = 'in_progress' | 'answered' | 'busy' | 'no_answer';
 export interface CallFacts {
   uuid: string;
   startedAt: Date;
+  /** When the call ended (last `call_hangup`), or null while it is still going. */
+  endedAt: Date | null;
   direction: CallDirection;
   status: CallStatus;
   /** Someone picked up (a `call_accepted` event), whether or not the call has ended. */
@@ -43,6 +45,7 @@ export function callFacts(rec: CallRecord): CallFacts {
   return {
     uuid: rec.uuid,
     startedAt: new Date(rec.time),
+    endedAt: hangup ? new Date(hangup.time) : null,
     direction,
     status,
     answered: Boolean(accepted),

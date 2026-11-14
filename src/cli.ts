@@ -9,6 +9,9 @@ import { loadRules, RulesError, DEFAULT_RULES_FILE } from './rules/rules.ts';
 import { preview, summarize, writePlans } from './sync/preview.ts';
 import { HubSpotAuthError, HubSpotClient, HubSpotError } from './hubspot/client.ts';
 import { loadHubSpotContext } from './hubspot/lookup.ts';
+import { pickSessionToken, saveSessionToken, Store } from './sync/store.ts';
+import { runLoop, Syncer } from './sync/run.ts';
+import pino from 'pino';
 
 const HELP = `unifi-talk-hubspot: log UniFi Talk calls in HubSpot (self-hosted, no AI)
 
@@ -18,6 +21,8 @@ Usage:
   unifi-talk-hubspot preview [--hours 24] [--limit 200]
                                                  Show what would be logged in HubSpot for recent calls.
                                                  Writes nothing to HubSpot.
+  unifi-talk-hubspot run [--once]                Keep logging new calls in HubSpot (DRY_RUN=true records instead).
+                                                 --once does one pass and exits.
   unifi-talk-hubspot help                        Show this help
 
 Configuration comes from environment variables (see .env.example) or config.yaml.
@@ -102,12 +107,53 @@ async function runPreview(args: { hours?: string | boolean; limit?: string | boo
   }
 }
 
+async function runCommand(once: boolean): Promise<number> {
+  const config = loadConfig();
+  if (!config.dryRun && !config.hubspot.token) throw new ConfigError('writing to HubSpot (DRY_RUN=false) needs HUBSPOT_TOKEN');
+  const rules = loadRules(config.rulesFile ?? DEFAULT_RULES_FILE);
+  const log = pino({ level: config.logLevel, base: undefined, timestamp: pino.stdTimeFunctions.isoTime });
+  let auth = config.talk.auth;
+  // A browser session the console renewed earlier is kept in DATA_DIR and used if it outlasts the configured one.
+  if (auth.kind === 'sessionToken') auth = { kind: 'sessionToken', token: pickSessionToken(config.dataDir, auth.token) };
+  const talk = new TalkClient({
+    host: config.talk.host,
+    port: config.talk.port,
+    pin: config.talk.certSha256,
+    auth,
+    onSessionToken: (token) => {
+      saveSessionToken(config.dataDir, token);
+      log.info({}, 'console renewed the Talk session; saved it');
+    },
+  });
+  try {
+    let hubspot = null;
+    if (config.hubspot.token) {
+      const client = new HubSpotClient({ token: config.hubspot.token, baseUrl: config.hubspot.baseUrl });
+      hubspot = { client, context: await loadHubSpotContext(client) };
+    }
+    const syncer = new Syncer({ talk, config, rules, store: Store.open(config.dataDir), hubspot, log });
+    log.info({ mode: config.dryRun ? 'dry run' : 'write', signIn: auth.kind, hubspot: hubspot ? 'connected' : 'no key' }, 'starting');
+    if (once) {
+      log.info({ ...(await syncer.once()) }, 'done');
+      return EXIT.ok;
+    }
+    const stop = new AbortController();
+    process.once('SIGINT', () => stop.abort());
+    process.once('SIGTERM', () => stop.abort());
+    await runLoop(syncer, { pollSeconds: config.talk.pollSeconds, signal: stop.signal, log });
+    log.info({}, 'stopped');
+    return EXIT.ok;
+  } finally {
+    talk.agent.destroy();
+  }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const { positionals, values } = parseArgs({
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { hours: { type: 'string' }, limit: { type: 'string' } },
+    options: { hours: { type: 'string' }, limit: { type: 'string' }, once: { type: 'boolean' } },
   });
   const [command, ...rest] = positionals;
   try {
@@ -116,6 +162,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return await fingerprint(rest[0]);
       case 'check':
         return await check();
+      case 'run':
+        return await runCommand(values.once === true);
       case 'preview':
         return await runPreview(values);
       case undefined:

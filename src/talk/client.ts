@@ -55,6 +55,8 @@ export interface TalkClientOptions {
   /** Minimum gap between requests, to stay gentle with the console. */
   minIntervalMs?: number;
   requestTimeoutMs?: number;
+  /** Called when the console renews a browser session (a new TOKEN cookie), so it can be kept across restarts. */
+  onSessionToken?: (token: string) => void;
 }
 
 interface RawResponse {
@@ -115,6 +117,7 @@ export class TalkClient {
   #lastRequestAt = 0;
   #minIntervalMs: number;
   #timeoutMs: number;
+  #onSessionToken: ((token: string) => void) | undefined;
 
   constructor(options: TalkClientOptions) {
     this.host = options.host;
@@ -123,6 +126,7 @@ export class TalkClient {
     this.agent = pinnedAgent(options.host, options.pin);
     this.#minIntervalMs = options.minIntervalMs ?? 100;
     this.#timeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.#onSessionToken = options.onSessionToken;
     this.#signedIn = options.auth.kind !== 'localAccount';
     if (options.auth.kind === 'sessionToken') {
       const token = options.auth.token.replace(/^TOKEN=/, '').trim();
@@ -287,8 +291,11 @@ export class TalkClient {
       if (i > 0) {
         const name = pair.slice(0, i).trim();
         const value = pair.slice(i + 1).trim();
-        if (value) this.#cookies.set(name, value);
-        else this.#cookies.delete(name);
+        if (value) {
+          const renewed = name === 'TOKEN' && this.auth.kind === 'sessionToken' && this.#cookies.get('TOKEN') !== value;
+          this.#cookies.set(name, value);
+          if (renewed) this.#onSessionToken?.(value);
+        } else this.#cookies.delete(name);
       }
     }
     const csrf = res.headers['x-updated-csrf-token'] ?? res.headers['x-csrf-token'];
