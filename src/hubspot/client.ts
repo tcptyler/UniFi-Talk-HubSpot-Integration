@@ -83,6 +83,7 @@ const SearchResult = z.looseObject({
 });
 export type SearchResult = z.infer<typeof SearchResult>;
 
+const Created = z.looseObject({ id: z.string() });
 const ErrorBody = z.looseObject({ message: z.string().optional(), category: z.string().optional(), correlationId: z.string().optional() });
 
 export class HubSpotClient {
@@ -140,6 +141,17 @@ export class HubSpotClient {
       schema: SearchResult,
     });
     return res.results[0]?.id ?? null;
+  }
+
+  /** Creates a CRM object. Not retried after a server error, so a slow success can't become a duplicate. */
+  async create(path: string, body: unknown): Promise<string> {
+    const res = await this.request('POST', path, { body, schema: Created, retrySafe: false });
+    return res.id;
+  }
+
+  /** Updates properties of a CRM object (the same update twice is harmless, so it is retried). */
+  async update(path: string, properties: Record<string, string>): Promise<void> {
+    await this.request('PATCH', path, { body: { properties }, schema: Created, retrySafe: true });
   }
 
   async request<T>(method: 'GET' | 'POST' | 'PATCH', path: string, options: { body?: unknown; query?: Record<string, string>; schema: z.ZodType<T>; retrySafe?: boolean }): Promise<T> {

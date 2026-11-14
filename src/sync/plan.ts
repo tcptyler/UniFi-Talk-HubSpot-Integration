@@ -32,6 +32,8 @@ export interface CallPlan {
   direction: CallFacts['direction'];
   status: CallFacts['status'];
   talkSeconds: number;
+  /** The caller left a voicemail. */
+  voicemailLeft: boolean;
   outcome: Outcome | null;
   rule: string | null;
   evidence: string | null;
@@ -98,6 +100,7 @@ export function planCall(rec: CallRecord, transcript: Transcript | null, ctx: Pl
     direction: facts.direction,
     status: facts.status,
     talkSeconds: facts.talkSeconds,
+    voicemailLeft: facts.voicemailLeft,
     outcome: null,
     rule: null,
     evidence: null,

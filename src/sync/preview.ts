@@ -95,7 +95,7 @@ export async function preview(talk: TalkClient, config: Config, rules: Rules, op
 }
 
 /** Newest calls first, back to `fromMs`, at most `limit`. */
-async function recentCalls(talk: TalkClient, fromMs: number, limit: number): Promise<CallRecord[]> {
+export async function recentCalls(talk: TalkClient, fromMs: number, limit: number): Promise<CallRecord[]> {
   const perPage = Math.min(100, limit);
   const out: CallRecord[] = [];
   for (let page = 0; out.length < limit; page++) {

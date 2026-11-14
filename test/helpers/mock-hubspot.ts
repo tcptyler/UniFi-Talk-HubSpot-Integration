@@ -44,6 +44,11 @@ export async function startMockHubSpot(options: { customMeetingOutcome?: boolean
     filterValue(r.body) === '2025550123' ? { body: { total: 1, results: [{ id: '501', properties: { hubspot_owner_id: '102' } }] } } : { body: { total: 0, results: [] } },
   );
   routes.set('POST /crm/objects/2026-09/calls/search', (r) => (filterValue(r.body) === 'vm' ? { body: { total: 1, results: [{ id: '9001', properties: {} }] } } : { body: { total: 0, results: [] } }));
+  // Writes: each create returns a new id; the bodies are kept in `requests` for the tests to inspect.
+  let nextId = 7000;
+  for (const kind of ['contacts', 'calls', 'tasks']) {
+    routes.set(`POST /crm/objects/2026-09/${kind}`, () => ({ status: 201, body: { id: String(++nextId), properties: {} } }));
+  }
 
   const server = http.createServer((req, res) => {
     let raw = '';
@@ -52,10 +57,13 @@ export async function startMockHubSpot(options: { customMeetingOutcome?: boolean
       const url = new URL(req.url ?? '/', 'http://hubspot');
       const entry: HsRequest = { method: req.method ?? '', path: url.pathname, query: url.searchParams, body: raw ? JSON.parse(raw) : undefined, auth: req.headers.authorization };
       requests.push(entry);
+      const patchContact = entry.method === 'PATCH' && /^\/crm\/objects\/2026-09\/contacts\/\d+$/.test(entry.path);
       const reply: Reply =
         entry.auth !== `Bearer ${TOKEN}`
           ? { status: 401, body: { status: 'error', message: 'Authentication credentials not found.', category: 'INVALID_AUTHENTICATION', correlationId: 'c-401' } }
-          : (routes.get(`${entry.method} ${entry.path}`)?.(entry) ?? { status: 404, body: { status: 'error', message: 'not found', category: 'OBJECT_NOT_FOUND' } });
+          : patchContact
+            ? { body: { id: entry.path.split('/').at(-1), properties: {} } }
+            : (routes.get(`${entry.method} ${entry.path}`)?.(entry) ?? { status: 404, body: { status: 'error', message: 'not found', category: 'OBJECT_NOT_FOUND' } });
       res.writeHead(reply.status ?? 200, { 'Content-Type': 'application/json', ...reply.headers });
       res.end(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body ?? {}));
     });
